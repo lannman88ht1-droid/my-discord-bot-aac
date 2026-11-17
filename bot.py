@@ -283,7 +283,7 @@ async def davetleri_guncelle(guild: discord.Guild):
 
 
 # ---------------------------------------------------------
-# 5. TICKET VIEWS
+# 5. TICKET VIEWS (DÜZELTİLDİ & TAMAMLANDI)
 # ---------------------------------------------------------
 class TicketKapatView(discord.ui.View):
 
@@ -317,7 +317,10 @@ class TicketKapatView(discord.ui.View):
         embed.set_footer(text=f'Kullanıcı ID: {interaction.user.id}')
         await erensi_log_gonder(interaction.guild, embed)
         await asyncio.sleep(5)
-        await interaction.channel.delete()
+        try:
+            await interaction.channel.delete()
+        except Exception as e:
+            print(f'Ticket kanalı silinemedi: {e}')
 
 
 class TicketView(discord.ui.View):
@@ -328,15 +331,16 @@ class TicketView(discord.ui.View):
     async def kanal_olustur(
         self, interaction: discord.Interaction, kategori_adi: str
     ):
-        try:
+        if not interaction.response.is_done():
             await interaction.response.defer(ephemeral=True)
-        except Exception:
-            pass
 
         try:
             guild = interaction.guild
             user = interaction.user
-            kanal_adi = f'{kategori_adi}-{user.name.lower()}'
+            temiz_kullanici = re.sub(r'[^a-zA-Z0-9_-]', '', user.name.lower())
+            if not temiz_kullanici:
+                temiz_kullanici = str(user.id)
+            kanal_adi = f'{kategori_adi}-{temiz_kullanici}'
 
             existing_channel = discord.utils.get(guild.channels, name=kanal_adi)
             if existing_channel:
@@ -350,16 +354,37 @@ class TicketView(discord.ui.View):
             category = guild.get_channel(CATEGORY_ID)
 
             overwrites = {
-                guild.default_role: discord.PermissionOverwrite(read_messages=False),
+                guild.default_role: discord.PermissionOverwrite(
+                    read_messages=False, view_channel=False
+                ),
                 user: discord.PermissionOverwrite(
-                    read_messages=True, send_messages=True
+                    read_messages=True, send_messages=True, view_channel=True
                 ),
                 guild.me: discord.PermissionOverwrite(
-                    read_messages=True, send_messages=True
+                    read_messages=True, send_messages=True, view_channel=True
                 ),
             }
 
-            if category:
+            rol_ids = []
+            rol_etiketleri = ''
+            if kategori_adi == 'ekip-alim':
+                rol_ids = [1545087594575175780]
+                rol_etiketleri = '<@&1545087594575175780>'
+            elif kategori_adi == 'merge-ally':
+                rol_ids = [1545087593211887659, 1545087322809438258]
+                rol_etiketleri = '<@&1545087593211887659> <@&1545087322809438258>'
+            elif kategori_adi in ['partner', 'genel-destek', 'reklam']:
+                rol_ids = [1545087590460293120]
+                rol_etiketleri = '<@&1545087590460293120>'
+
+            for r_id in rol_ids:
+                yetkili_rol = guild.get_role(r_id)
+                if yetkili_rol:
+                    overwrites[yetkili_rol] = discord.PermissionOverwrite(
+                        read_messages=True, send_messages=True, view_channel=True
+                    )
+
+            if category and isinstance(category, discord.CategoryChannel):
                 ticket_channel = await category.create_text_channel(
                     name=kanal_adi, overwrites=overwrites
                 )
@@ -373,14 +398,6 @@ class TicketView(discord.ui.View):
                 f' {ticket_channel.mention}',
                 ephemeral=True,
             )
-
-            rol_etiketleri = ''
-            if kategori_adi == 'ekip-alim':
-                rol_etiketleri = '<@&1545087594575175780>'
-            elif kategori_adi == 'merge-ally':
-                rol_etiketleri = '<@&1545087593211887659> <@&1545087322809438258>'
-            elif kategori_adi in ['partner', 'genel-destek', 'reklam']:
-                rol_etiketleri = '<@&1545087590460293120>'
 
             mesaj_icerigi = (
                 f'Merhaba {user.mention} {rol_etiketleri},'
@@ -426,6 +443,13 @@ class TicketView(discord.ui.View):
 
         except Exception as e:
             print(f'❌ Ticket oluşturulurken hata: {e}')
+            try:
+                await interaction.followup.send(
+                    f'❌ Ticket oluşturulurken bir hata oluştu: `{e}`',
+                    ephemeral=True,
+                )
+            except Exception:
+                pass
 
     @discord.ui.button(
         label='⚔️ Ekip Alım',
@@ -789,7 +813,6 @@ async def set_log_channel(
     )
 
 
-# --- YENİ EKLENEN: TOPLU DM KOMUTU (/duyuru-dm) ---
 @bot.tree.command(
     name='duyuru-dm',
     description='Sunucudaki tüm üyelere özel mesaj (DM) olarak duyuru iletir.',
@@ -830,7 +853,7 @@ async def duyuru_dm(interaction: discord.Interaction, mesaj: str):
             )
             await member.send(embed=embed)
             basarili += 1
-            await asyncio.sleep(1.5)  # Discord Rate-Limit koruması
+            await asyncio.sleep(1.5)
         except Exception:
             basarisiz += 1
 
@@ -1234,8 +1257,17 @@ async def cekilis_baslat(
 
     await asyncio.sleep(saniye)
 
-    yeni_mesaj = await interaction.channel.fetch_message(mesaj.id)
+    try:
+        yeni_mesaj = await interaction.channel.fetch_message(mesaj.id)
+    except Exception:
+        return
+
     reaction = discord.utils.get(yeni_mesaj.reactions, emoji='🎉')
+    if not reaction:
+        return await interaction.channel.send(
+            f'⚠️ **{odul}** çekilişi için tepki bulunamadı.'
+        )
+
     users = [user async for user in reaction.users() if not user.bot]
 
     if len(users) < kazanan_sayisi:
@@ -1480,7 +1512,6 @@ async def on_guild_channel_create(channel):
 @bot.event
 async def on_guild_channel_delete(channel):
     guild = channel.guild
-    simdi = datetime.now(timezone.utc).timestamp()
     await asyncio.sleep(0.3)
 
     yapan_kisi = 'Bilinmiyor'
