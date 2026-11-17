@@ -2238,19 +2238,17 @@ async def on_ready():
 
     for guild in bot.guilds:
         await davetleri_guncelle(guild)
-        try:
-            bot.tree.copy_global_to(guild=guild)
-            synced = await bot.tree.sync(guild=guild)
-            print(
-                f'BAŞARILI: "{guild.name}" sunucusu için {len(synced)} komut'
-                ' eşitlendi.'
-            )
-        except Exception as e:
-            print(f'Eşitleme hatası ({guild.name}): {e}')
 
-    print(f'🚀 {bot.user} Koruma ve Erensi Tarzı Log Sistemi 7/24 Aktif!')
+    try:
+        synced = await bot.tree.sync()
+        print(f"✅ BAŞARILI: {len(synced)} slash komutu global olarak eşitlendi.")
+        print("Eklenen komutlar:")
+        for command in synced:
+            print(f"- /{command.name}")
+    except Exception as e:
+        print(f"❌ Slash komut eşitleme hatası: {e}")
 
-
+    print(f"🚀 {bot.user} Koruma ve Erensi Tarzı Log Sistemi 7/24 Aktif!")
 # ---------------------------------------------------------
 # 12. BAŞLATMA DÖNGÜSÜ
 # ---------------------------------------------------------
